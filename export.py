@@ -87,7 +87,7 @@ def process_rule(filename, oval_nodes):
 
 	# Create the rule definition.
 	oval_nodes["definition_count"] += 1
-	defnode = make_node(oval_nodes["definitions"], "definition",
+	defnode = make_node(oval_nodes["definitions"], "definition", None,
 		id="oval:easyscap_generated:def:%d" % oval_nodes["definition_count"], version="1")
 	defnode.set("class", "compliance")
 	defnodemeta = make_node(defnode, "metadata")
@@ -114,7 +114,7 @@ def process_rule(filename, oval_nodes):
 			node = process_test(test, oval_nodes, yaml["id"], i, var_map)
 
 			if defnodecriteria is None:
-				defnodecriteria = make_node(defnode, "criteria")
+				defnodecriteria = make_node(defnode, "criteria", None, operator=yaml["operator"])
 			make_node(defnodecriteria, "criterion", test_ref=node.get('id'))
 
 	except Exception as e:

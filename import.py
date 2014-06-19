@@ -121,7 +121,9 @@ def process_rule(rule, rule_profiles, xccdf_path, group_path, outdir, drop_id_pr
 			if ovalcontent is not None:
 				criteria = ovalcontent.find('{http://oval.mitre.org/XMLSchema/oval-definitions-5}criteria')
 				if criteria is not None:
+					ruledict["operator"] = criteria.get("operator", None)
 					ruledict["tests"] = []
+					# TODO: There may be other nodes here besides criteria.
 					for criterion in criteria.findall('{http://oval.mitre.org/XMLSchema/oval-definitions-5}criterion'):
 						ovaltest = oval.find(".//*[@id='" + criterion.get("test_ref") + "']")
 						testdict = node_to_dict(ovaltest, include_type=True, oval=oval, variable_map=variable_map)
