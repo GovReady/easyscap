@@ -108,6 +108,9 @@ def process_rule(rule, rule_profiles, xccdf_path, group_path, outdir, drop_id_pr
 	#if rule.get("id") in rule_profiles:
 	#	ruledict["profiles"] = sorted(rule_profiles[rule.get("id")])
 
+	# Collect variables from OVAL.
+	variable_map = { }
+
 	# The rule's test.
 	test = rule.find("{http://checklists.nist.gov/xccdf/1.2}check[@system='http://oval.mitre.org/XMLSchema/oval-definitions-5']")
 	if test is not None:
@@ -121,7 +124,16 @@ def process_rule(rule, rule_profiles, xccdf_path, group_path, outdir, drop_id_pr
 					ruledict["tests"] = []
 					for criterion in criteria.findall('{http://oval.mitre.org/XMLSchema/oval-definitions-5}criterion'):
 						ovaltest = oval.find(".//*[@id='" + criterion.get("test_ref") + "']")
-						ruledict["tests"].append( node_to_dict(ovaltest, include_type=True, oval=oval) )
+						testdict = node_to_dict(ovaltest, include_type=True, oval=oval, variable_map=variable_map)
+						ruledict["tests"].append(testdict)
+
+	# Add variable definitions.
+	if len(variable_map) > 0:
+		ruledict["variables"] = collections.OrderedDict()
+		for old_id, new_id in sorted(variable_map.items()):
+			ovalvar = oval.find(".//*[@id='" + old_id + "']")
+			ruledict["variables"][new_id] = node_to_dict(ovalvar, include_type=True, oval=oval)
+
 
 	# make a nice directory name for the rule
 	r = rule.get('id')
@@ -148,11 +160,9 @@ def load_oval_file(src_path, href):
 		oval_files[ovalpath] = lxml.etree.parse(ovalpath).getroot()
 	return oval_files[ovalpath]
 
-def node_to_dict(node, include_type=False, oval=None):
-	# get attributes, minus any recognized data type and any attributes we don't want
-	exclude_attrs1 = ["id"] # we will regenerate all IDs during export
-	exclude_attrs2 = [('datatype', 'int'), ('datatype', 'string'), ('datatype', 'boolean')]
-	attrs = [kv for kv in node.items() if kv[0] not in exclude_attrs1 and kv not in exclude_attrs2]
+def node_to_dict(node, include_type=False, oval=None, variable_map=None):
+	# get the attributes
+	attrs = [kv for kv in node.items() if kv[0] not in ('id',)]
 
 	# get the element children; excludes comments
 	children = [n for n in node if isinstance(n.tag, str)]
@@ -164,8 +174,10 @@ def node_to_dict(node, include_type=False, oval=None):
 		node_value = node.text
 		if node.get("datatype") == "int":
 			node_value = int(node_value)
+			attrs.remove(("datatype", "int")) # now implicit
 		if node.get("datatype") == "boolean":
 			node_value = (node_value == "true")
+			attrs.remove(("datatype", "boolean")) # now implicit
 
 	# if the node has no attributes (besides datatype) and no children,
 	# just represent the value directly
@@ -185,6 +197,12 @@ def node_to_dict(node, include_type=False, oval=None):
 		for k, v in sorted(attrs):
 			# Turn namespaced names into QNames.
 			k = get_simple_tag_name(k)
+
+			# rewrite variables
+			if variable_map is not None and k == "var_ref":
+				if v not in variable_map:
+					variable_map[v] = len(variable_map)
+				v = variable_map[v]
 
 			# Anything that might be interpreted during export as something
 			# other than an attribute should get @-escaped to make sure it
@@ -209,18 +227,27 @@ def node_to_dict(node, include_type=False, oval=None):
 
 				# Resolve OVAL references.
 				for key in ("object", "state"):
-					if child.get(key + "_ref") and oval is not None:
+					if child.tag.endswith("}" + key) and child.get(key + "_ref") and oval is not None:
 						child = oval.find('.//*[@id="' + child.get(key + "_ref") +'"]')
 						child_include_type = True
 						tag = key
 						if child.tag == node.tag.replace("_test", "_" + key):
 							child_include_type = False
-				if child.tag == '{http://oval.mitre.org/XMLSchema/oval-definitions-5}filter':
-					tag = 'filter'
-					child = oval.find('.//*[@id="' + child.text +'"]')
 
 				# Add the child.
-				ret[tag] = node_to_dict(child, oval=oval, include_type=child_include_type)
+				ret[tag] = node_to_dict(child, include_type=child_include_type,
+					oval=oval, variable_map=variable_map)
+
+				# More embedding.
+				if child.get("object_ref"):
+					obj = oval.find('.//*[@id="' + child.get("object_ref") +'"]')
+					obj = node_to_dict(obj, include_type=True, oval=oval, variable_map=variable_map)
+					ret[tag]["object_ref"] = obj
+
+				if child.tag == '{http://oval.mitre.org/XMLSchema/oval-definitions-5}filter':
+					ret[tag]['value'] = node_to_dict(oval.find('.//*[@id="' + child.text +'"]'),
+						include_type=True, oval=oval, variable_map=variable_map)
+					
 
 	return ret
 

@@ -87,8 +87,11 @@ The metadata (id, title, description, etc) is similar to that of groups. But rul
 Exporting YAML to XCCDF/OVAL
 ----------------------------
 
-We'll now convert the YAML back to XCCDF 1.2 and OVAL.
+We'll now convert the YAML back to OVAL. (Exporting to XCCDF is not yet implemented.)
 
-	./export.py easy-ssg/group.yaml output-xccdf.xml output-oval.xml
+	./export.py easy-ssg/group.yaml output-oval.xml
 
-This writes two files (`output-xccdf.xml` and `output-oval.xml`).
+This writes `output-oval.xml`. Then try running the tests in the file:
+
+	oscap oval eval output-oval.xml
+

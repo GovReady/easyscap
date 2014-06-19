@@ -7,7 +7,7 @@
 # Usage:
 # python3 export.py group.yaml output-xccdf.xml output-oval.xml
 
-import sys, collections, re, os, os.path
+import sys, collections, re, os, os.path, datetime
 import lxml.etree
 import rtyaml
 
@@ -15,14 +15,13 @@ from utils import pandoc, expand_tag_name, simple_namespaces_inv
 
 def main():
 	# Process command-line arguments.
-	if len(sys.argv) < 4:
+	if len(sys.argv) < 3:
 		print("Usage:", file=sys.stderr)
-		print("python3 export.py tgroup.yaml output-xccdf.xml output-oval.xml", file=sys.stderr)
+		print("python3 export.py tgroup.yaml output-oval.xml", file=sys.stderr)
 		sys.exit(1)
 
 	filename = sys.argv[1]
-	out_xccdf = sys.argv[2]
-	out_oval = sys.argv[3]
+	out_oval = sys.argv[2]
 
 	namespaces = {
 		None: "http://oval.mitre.org/XMLSchema/oval-definitions-5",
@@ -37,14 +36,19 @@ def main():
 	# metadata
 	generator = make_node(oval, "generator")
 	make_node(generator, "{http://oval.mitre.org/XMLSchema/oval-common-5}product_name", "easyscap")
+	make_node(generator, "{http://oval.mitre.org/XMLSchema/oval-common-5}product_version", "0.0.0.0")
 	make_node(generator, "{http://oval.mitre.org/XMLSchema/oval-common-5}schema_version", "5.10")
+	make_node(generator, "{http://oval.mitre.org/XMLSchema/oval-common-5}timestamp", datetime.datetime.now().isoformat())
 
 	# create test nodes
 	oval_nodes = {
+		"definitions": make_node(oval, "definitions"),
 		"tests": make_node(oval, "tests"),
 		"objects": make_node(oval, "objects"),
 		"states": make_node(oval, "states"),
+		"variables": make_node(oval, "variables"),
 
+		"definition_count": 0,
 		"object_count": 0,
 		"state_count": 0,
 	}
@@ -81,18 +85,46 @@ def process_rule(filename, oval_nodes):
 
 	yaml = rtyaml.load(open(filename))
 
-	# Create OVAL definitions for the tests.
+	# Create the rule definition.
+	oval_nodes["definition_count"] += 1
+	defnode = make_node(oval_nodes["definitions"], "definition",
+		id="oval:easyscap_generated:def:%d" % oval_nodes["definition_count"], version="1")
+	defnode.set("class", "compliance")
+	defnodemeta = make_node(defnode, "metadata")
+	make_node(defnodemeta, "title", yaml["title"])
+	affected = make_node(defnodemeta, "affected", family="unix")
+	make_node(affected, "platform", "Unknown")
+	make_node(defnodemeta, "description", pandoc(yaml["description"], "markdown", "html")) # should be inserted raw, not escaped
+	defnodecriteria = None
+
+	# Create OVAL definitions for the variables.
+	var_map = { }
 	try:
-		for i, test in enumerate(yaml.get("tests", [])):
-			node = process_test(test, oval_nodes, yaml["id"], i)
+		for key, var in yaml.get("variables", {}).items():
+			node = dict_to_node(oval_nodes["variables"], var, oval_nodes=oval_nodes)
+			varid = "oval:%s:var:%d" % (yaml["id"], key+1)
+			node.set("id", varid)
+			var_map[key] = varid
 	except Exception as e:
 		raise Exception("Error processing rule %s: %s" % (filename, str(e)))
 
-def process_test(test, oval_nodes, rule_id, test_index):
+	# Create OVAL definitions for the tests.
+	try:
+		for i, test in enumerate(yaml.get("tests", [])):
+			node = process_test(test, oval_nodes, yaml["id"], i, var_map)
+
+			if defnodecriteria is None:
+				defnodecriteria = make_node(defnode, "criteria")
+			make_node(defnodecriteria, "criterion", test_ref=node.get('id'))
+
+	except Exception as e:
+		raise Exception("Error processing rule %s: %s" % (filename, str(e)))
+
+def process_test(test, oval_nodes, rule_id, test_index, var_map):
 	# Create an OVAL definition for the test.
 
 	# The object and state have to be moved into their own parts.
-	for key, idslug in (("object", "obj"), ("state", "state")):
+	for key, idslug in (("object", "obj"), ("state", "ste")):
 		if key not in test: continue
 
 		# Generate an id.
@@ -104,7 +136,7 @@ def process_test(test, oval_nodes, rule_id, test_index):
 			if not test.get("type", "").endswith("_test"): raise ValueError("Invalid test type: " + test)
 			test[key]["type"] = test["type"][:-4] + key
 
-		dict_to_node(oval_nodes[key+"s"], test[key])
+		dict_to_node(oval_nodes[key+"s"], test[key], var_map=var_map, oval_nodes=oval_nodes)
 
 		test[test["type"].split(":")[0] + ":" + key] = { key + "_ref": test[key]['id'] }
 
@@ -113,13 +145,13 @@ def process_test(test, oval_nodes, rule_id, test_index):
 
 	# Convert the rest.
 	try:
-		node = dict_to_node(oval_nodes["tests"], test)
+		node = dict_to_node(oval_nodes["tests"], test, var_map=var_map, oval_nodes=oval_nodes)
 		node.set("id", "oval:%s:tst:%d" % (rule_id, test_index+1))
 	except Exception as e:
 		raise Exception("Error processing test (%s) in (%s)" % (str(e), rtyaml.dump(test)))
 	return node
 
-def dict_to_node(parent, dictobj, default_type=None):
+def dict_to_node(parent, dictobj, default_type=None, var_map=None, oval_nodes=None):
 	my_type = dictobj.get("type", default_type)
 	if my_type is None: raise Exception("Invalid data: Missing type. (%s)" % rtyaml.dump(dictobj))
 
@@ -129,6 +161,26 @@ def dict_to_node(parent, dictobj, default_type=None):
 		if k == "type":
 			# already handled
 			continue
+
+		elif k == "var_ref" and var_map is not None:
+			# Re-map variables.
+			node.set("var_ref", var_map[v])
+
+		elif k == "object_ref" and isinstance(v, dict) and oval_nodes is not None:
+			# Re-create object.
+			oval_nodes["object_count"] += 1
+			objid = "oval:easyscap_generated:%s:%d" % ('obj', oval_nodes["object_count"])
+			n = dict_to_node(oval_nodes["objects"], v, var_map=var_map, oval_nodes=oval_nodes)
+			n.set('id', objid)
+			node.set(expand_tag_name(k), objid)
+
+		elif expand_tag_name(my_type) == '{http://oval.mitre.org/XMLSchema/oval-definitions-5}filter' and k == "value":
+			# Re-create object.
+			oval_nodes["state_count"] += 1
+			objid = "oval:easyscap_generated:%s:%d" % ('ste', oval_nodes["state_count"])
+			n = dict_to_node(oval_nodes["states"], v, var_map=var_map, oval_nodes=oval_nodes)
+			n.set('id', objid)
+			node.text = objid
 
 		elif k == "value":
 			# This content goes right into the node's inner text.
@@ -152,7 +204,7 @@ def dict_to_node(parent, dictobj, default_type=None):
 
 		else:
 			# This is obviously an element because it has a complex child.
-			dict_to_node(node, v, default_type=expand_tag_name(k))
+			dict_to_node(node, v, default_type=expand_tag_name(k), oval_nodes=oval_nodes, var_map=var_map)
 
 	return node
 

@@ -5,6 +5,7 @@ simple_namespaces = {
 	'http://purl.org/dc/elements/1.1/': 'dc',
 	'http://www.w3.org/2001/XMLSchema-instance': 'xsi',
 	'http://checklists.nist.gov/xccdf/1.2': 'xccdf',
+	'http://oval.mitre.org/XMLSchema/oval-definitions-5': 'oval',
 	'http://oval.mitre.org/XMLSchema/oval-definitions-5#independent': 'ind',
 	'http://oval.mitre.org/XMLSchema/oval-definitions-5#linux': 'linux',
 	'http://oval.mitre.org/XMLSchema/oval-definitions-5#unix': 'unix',
