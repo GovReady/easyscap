@@ -20,7 +20,7 @@ Importing from XCCDF/OVAL
 
 Let's convert the SSG into `easyscap`. Actually even SSG doesn't use XCCDF and OVAL directly! They build their XCCDF and OVAL file from small, broken-out XML files. But for this example we'll do the conversion from their complete XCCDF and OVAL files, so you'll need to compile their XCCDF and OVAL files first:
 
-	sudo apt-get install git wget unzip libopenscap8 expat
+	sudo apt-get install git wget unzip libopenscap8 expat xsltproc
 	git clone git://git.fedorahosted.org/git/scap-security-guide.git
 	cd scap-security-guide
 	make rhel6
