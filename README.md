@@ -5,8 +5,8 @@ A simple (but equivalent) format for writing SCAP tests by [GovReady](http://www
 
 Security Content Automation Protocol (SCAP) is a set of standards for automated security auditing of computer systems. But writing SCAP tests is a pain. The XCCDF and OVAL formats are cumbersome. `easyscap` is a YAML-based representation format for SCAP tests that can be converted into and out of XCCDF 1.2 and OVAL 5.
 
-Installing
-----------
+Installing (Ubuntu 14.04)
+-------------------------
 
 Before using `easyscap`, you'll need to install prerequisities:
 
