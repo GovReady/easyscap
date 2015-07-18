@@ -11,7 +11,7 @@ Installing (Ubuntu 14.04)
 Before using `easyscap`, you'll need to install prerequisities:
 
 	sudo apt-get update
-	sudo apt-get install python3 pandoc 
+	sudo apt-get install python3 python-pip pandoc 
 	sudo pip3 install rtyaml
 
 Importing from XCCDF/OVAL
